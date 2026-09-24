@@ -1,5 +1,7 @@
 package dev.photon.app.gallery
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -28,6 +30,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,8 +41,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.photon.app.storage.CaptureInfo
+import dev.photon.app.share.ShareLink
 import dev.photon.app.storage.CaptureStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -48,7 +53,29 @@ fun GalleryScreen(onNewCapture: () -> Unit, onOpen: (File) -> Unit) {
     val context = LocalContext.current
     val store = remember { CaptureStore(context) }
     var refresh by remember { mutableIntStateOf(0) }
+    var selected by remember { mutableStateOf<CaptureInfo?>(null) }
     var pendingDelete by remember { mutableStateOf<CaptureInfo?>(null) }
+    var sharing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun shareLink(info: CaptureInfo) {
+        sharing = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    store.sharedLink(info.file)
+                        ?: ShareLink.upload(info.file).also { store.saveSharedLink(info.file, it) }
+                }
+            }
+            sharing = false
+            result
+                .onSuccess { url ->
+                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
+                    context.startActivity(Intent.createChooser(send, "Share capture link"))
+                }
+                .onFailure { Toast.makeText(context, "Couldn't share: ${it.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
 
     val captures by produceState(emptyList<Pair<CaptureInfo, ImageBitmap?>>(), refresh) {
         value = withContext(Dispatchers.IO) {
@@ -71,13 +98,42 @@ fun GalleryScreen(onNewCapture: () -> Unit, onOpen: (File) -> Unit) {
                     modifier = Modifier.align(Alignment.Center),
                 )
             } else {
-                CaptureGrid(captures, onOpen = { onOpen(it.file) }, onLongPress = { pendingDelete = it })
+                CaptureGrid(captures, onOpen = { onOpen(it.file) }, onLongPress = { selected = it })
             }
         }
         Button(
             onClick = onNewCapture,
             modifier = Modifier.fillMaxWidth().padding(16.dp),
         ) { Text("New capture") }
+    }
+
+    selected?.let { info ->
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text("Capture") },
+            text = { Text("Share link uploads this capture so anyone with the link can view it in a browser.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    selected = null
+                    shareLink(info)
+                }) { Text("Share link") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    selected = null
+                    pendingDelete = info
+                }) { Text("Delete") }
+            },
+        )
+    }
+
+    if (sharing) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Uploading") },
+            text = { Text("Creating a share link…") },
+            confirmButton = {},
+        )
     }
 
     pendingDelete?.let { info ->

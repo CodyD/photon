@@ -5,6 +5,7 @@
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="true" />
 
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"

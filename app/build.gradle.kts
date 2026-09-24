@@ -1,7 +1,23 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Release signing reads from keystore.properties (git-ignored). Missing file => unsigned release.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+// Web viewer that "Share link" uploads captures to (the photon-viewer Worker). Set photonViewerUrl in
+// local.properties or gradle.properties to point at a different deployment.
+val viewerUrl: String = Properties().run {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+    getProperty("photonViewerUrl")
+} ?: providers.gradleProperty("photonViewerUrl").orNull ?: "https://photon.codydyer.com"
 
 android {
     namespace = "dev.photon.app"
@@ -13,10 +29,24 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField("String", "VIEWER_URL", "\"${viewerUrl.trimEnd('/')}\"")
+    }
+
+    signingConfigs {
+        if (keystoreProperties.isNotEmpty()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
@@ -29,6 +59,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

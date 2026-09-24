@@ -84,7 +84,17 @@ class CaptureStore(context: Context) {
 
     fun delete(bundle: File) {
         bundle.delete()
+        linkFile(bundle).delete()
     }
+
+    /** Viewer URL from an earlier "Share link" upload of [bundle], so re-sharing doesn't upload again. */
+    fun sharedLink(bundle: File): String? = linkFile(bundle).takeIf { it.exists() }?.readText()?.trim()
+
+    fun saveSharedLink(bundle: File, url: String) {
+        linkFile(bundle).writeText(url)
+    }
+
+    private fun linkFile(bundle: File) = File(bundle.parentFile, "${bundle.name}.link")
 
     private fun putStored(zip: ZipOutputStream, name: String, file: File) {
         val bytes = file.readBytes()
